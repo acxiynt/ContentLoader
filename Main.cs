@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Reflection.Emit;
+using System.Threading.Tasks;
 namespace Genesis.ContentLoader;
 
 public class Main : IPluginBase
@@ -14,13 +15,14 @@ public class Main : IPluginBase
     public static Harmony harmony;
     public void Init()
     {
-        Util.LogString("ContentLoader", "Hook hit");
+        Util.LogString("ContentLoader", "Patch started");
         harmony = new Harmony("Genesis.ContentLoader");
         //dont ever DARE to use patchall, it does nothing
         harmony.Patch(
             typeof(Tables).GetConstructor(new Type[] { typeof(Func<string, JSONNode>) }),
             prefix: new HarmonyMethod(method: typeof(Patch).GetMethod(nameof(Patch._Tables)))
         );
+        //exception due to dupe keys? never heard of
         IEnumerable<Type> tableTypes = typeof(Tables).GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(property => property.PropertyType);
         IEnumerable<ConstructorInfo> ctors = tableTypes.Select(tableTypes => tableTypes.GetConstructor(new Type[] { typeof(JSONNode) })).Where(ctor => ctor != null);
         foreach (ConstructorInfo ctor in ctors)
@@ -28,6 +30,10 @@ public class Main : IPluginBase
             harmony.Patch(ctor, null, null, new HarmonyMethod(method: typeof(Patch).GetMethod(nameof(Patch._Ctor))));
         }
         Util.LogString("ContentLoader", "Patch finished");
+        Util.LogString("ContentLoader", "Serialization started");
+        foreach (string mods in Directory.GetDirectories(Config.GetConfig("Path", "ModPath")))
+            JsonLoader.TryLoadMod(mods);
+        Util.LogString("ContentLoader", "Serialization finished");
     }
 }
 
@@ -40,34 +46,22 @@ public class Patch
         {
             string path = Path.Combine(Config.GetConfig("Path", "ModPath"), $"{name}.json");
             string dataPath = Path.Combine(Config.GetConfig("Path", "DataPath"), $"{name}.json");
-            if (!File.Exists(dataPath))
+            if (!Directory.Exists(dataPath))
                 Directory.CreateDirectory(Path.GetDirectoryName(dataPath));
-            string errorPath = Config.GetConfig("Path", "LogPath");
             if (!File.Exists(dataPath))
             {
                 JSONNode json = _loader(name);
-                using StreamWriter filePtr = File.CreateText(dataPath);
+                StreamWriter filePtr = File.CreateText(dataPath);
                 filePtr.WriteLine(json.ToString(2));
+                filePtr.Close();
             }
-            if (File.Exists(path))
-            {
-                JSONNode mod;
-                try
-                {
-                    mod = JSON.Parse(File.ReadAllText(path));
-                }
-                catch (Exception e)
-                {
-                    Util.LogString("GenesisLoader", $"json {name}.json failed to parse with exception {e}, reading game default.");
-                    return _loader(name);
-                }
-                return mod;
-            }
-            else
-            {
-                JSONNode json = _loader(name);
-                return json;
-            }
+            JSONArray mod = JsonLoader.jsons.ContainsKey(name) ? JsonLoader.jsons[name] : null;
+            JSONNode original = _loader(name);
+            if (mod != null)
+                JsonUtil.Merge(mod, original.AsArray);
+            if (mod == null)
+                return original;
+            return mod;
         };
     }
 
