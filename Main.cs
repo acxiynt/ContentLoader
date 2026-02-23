@@ -7,7 +7,6 @@ using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Reflection.Emit;
-using System.Threading.Tasks;
 namespace Genesis.ContentLoader;
 
 public class Main : IPluginBase
@@ -58,10 +57,8 @@ public class Patch
             JSONArray mod = JsonLoader.jsons.ContainsKey(name) ? JsonLoader.jsons[name] : null;
             JSONNode original = _loader(name);
             if (mod != null)
-                JsonUtil.Merge(mod, original.AsArray);
-            if (mod == null)
-                return original;
-            return mod;
+                JsonUtil.Merge(original.AsArray, mod);
+            return original;
         };
     }
 
