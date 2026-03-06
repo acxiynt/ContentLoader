@@ -30,7 +30,7 @@ public class Main : IPluginBase
         }
         Util.LogString("ContentLoader", "Patch finished");
         Util.LogString("ContentLoader", "Serialization started");
-        foreach (string mods in Directory.GetDirectories(Config.GetConfig("Path", "ModPath")))
+        foreach (string mods in Directory.GetDirectories(Constant.ModPath))
             JsonLoader.TryLoadMod(mods);
         Util.LogString("ContentLoader", "Serialization finished");
     }
@@ -43,8 +43,7 @@ public class Patch
         Func<string, JSONNode> _loader = loader;
         loader = name =>
         {
-            string path = Path.Combine(Config.GetConfig("Path", "ModPath"), $"{name}.json");
-            string dataPath = Path.Combine(Config.GetConfig("Path", "DataPath"), $"{name}.json");
+            string dataPath = $"Constant.DataPath/{name}.json";
             if (!Directory.Exists(dataPath))
                 Directory.CreateDirectory(Path.GetDirectoryName(dataPath));
             if (!File.Exists(dataPath))
