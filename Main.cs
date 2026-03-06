@@ -44,8 +44,6 @@ public class Patch
         loader = name =>
         {
             string dataPath = $"Constant.DataPath/{name}.json";
-            if (!Directory.Exists(dataPath))
-                Directory.CreateDirectory(Path.GetDirectoryName(dataPath));
             if (!File.Exists(dataPath))
             {
                 JSONNode json = _loader(name);
@@ -92,3 +90,4 @@ IL_0049: callvirt instance string DolocTown.Config.Time.ChairProto::get_Id()
 IL_004E: ldloc.1
 IL_004F: callvirt instance void class [mscorlib] System.Collections.Generic.Dictionary`2<string, class DolocTown.Config.Time.ChairProto>::set_Item(!0, !1)
 */
+//i actually also likes shiiba tsumugi

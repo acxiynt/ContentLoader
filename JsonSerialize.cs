@@ -75,6 +75,7 @@ public class JsonLoader
         catch (Exception)
         {
             Util.LogString("ContentLoader", $"{path} has malformed modinfo.json, skipping", InfoType.Warning);
+            return;
         }
         if (loadedMod.ContainsKey(info.ModID))
         {
