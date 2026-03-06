@@ -22,12 +22,10 @@ public class Main : IPluginBase
             prefix: new HarmonyMethod(method: typeof(Patch).GetMethod(nameof(Patch._Tables)))
         );
         //exception due to dupe keys? never heard of
-        IEnumerable<Type> tableTypes = typeof(Tables).GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(property => property.PropertyType);
-        IEnumerable<ConstructorInfo> ctors = tableTypes.Select(tableTypes => tableTypes.GetConstructor(new Type[] { typeof(JSONNode) })).Where(ctor => ctor != null);
-        foreach (ConstructorInfo ctor in ctors)
-        {
+        foreach (ConstructorInfo ctor in
+            typeof(Tables).GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(property => property.PropertyType)
+                .Select(tableTypes => tableTypes.GetConstructor(new Type[] { typeof(JSONNode) })).Where(_ctor => _ctor != null))
             harmony.Patch(ctor, null, null, new HarmonyMethod(method: typeof(Patch).GetMethod(nameof(Patch._Ctor))));
-        }
         Util.LogString("ContentLoader", "Patch finished");
         Util.LogString("ContentLoader", "Serialization started");
         foreach (string mods in Directory.GetDirectories(Constant.ModPath))
@@ -43,7 +41,7 @@ public class Patch
         Func<string, JSONNode> _loader = loader;
         loader = name =>
         {
-            string dataPath = $"Constant.DataPath/{name}.json";
+            string dataPath = $"{Constant.DataPath}/{name}.json";
             if (!File.Exists(dataPath))
             {
                 JSONNode json = _loader(name);
