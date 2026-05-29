@@ -7,6 +7,7 @@
     <Version>1.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="0Harmony.dll">
@@ -20,6 +21,12 @@
     </Reference>
     <Reference Include="Assembly-CSharp-firstpass.dll">
       <HintPath>.\include\Assembly-CSharp-firstpass.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule.dll">
+      <HintPath>.\include\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule.dll">
+      <HintPath>.\include\UnityEngine.AssetBundleModule.dll</HintPath>
     </Reference>
   </ItemGroup>
 </Project>

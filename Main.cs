@@ -8,24 +8,23 @@ using System.Reflection;
 using System.Collections.Generic;
 using System.Reflection.Emit;
 namespace Genesis.ContentLoader;
-
+#pragma warning disable 1591
 public class Main : IPluginBase
 {
-    public static Harmony harmony;
+    private static Harmony harmony;
     public void Init()
     {
         Util.LogString("ContentLoader", "Patch started");
         harmony = new Harmony("Genesis.ContentLoader");
-        //dont ever DARE to use patchall, it does nothing
+        //patchall does not work for somewhat reason, have to do it manually
         harmony.Patch(
             typeof(Tables).GetConstructor(new Type[] { typeof(Func<string, JSONNode>) }),
             prefix: new HarmonyMethod(method: typeof(Patch).GetMethod(nameof(Patch._Tables)))
         );
-        //exception due to dupe keys? never heard of
         foreach (ConstructorInfo ctor in
             typeof(Tables).GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(property => property.PropertyType)
                 .Select(tableTypes => tableTypes.GetConstructor(new Type[] { typeof(JSONNode) })).Where(_ctor => _ctor != null))
-            harmony.Patch(ctor, null, null, new HarmonyMethod(method: typeof(Patch).GetMethod(nameof(Patch._Ctor))));
+            harmony.Patch(ctor, transpiler: new HarmonyMethod(method: typeof(Patch).GetMethod(nameof(Patch._Ctor))));
         Util.LogString("ContentLoader", "Patch finished");
         Util.LogString("ContentLoader", "Serialization started");
         foreach (string mods in Directory.GetDirectories(Constant.ModPath))
@@ -34,9 +33,9 @@ public class Main : IPluginBase
     }
 }
 
-public class Patch
+internal class Patch
 {
-    public static void _Tables(ref Func<string, JSONNode> loader)
+    internal static void _Tables(ref Func<string, JSONNode> loader)
     {
         Func<string, JSONNode> _loader = loader;
         loader = name =>
@@ -49,7 +48,7 @@ public class Patch
                 filePtr.WriteLine(json.ToString(2));
                 filePtr.Close();
             }
-            JSONArray mod = JsonLoader.jsons.ContainsKey(name) ? JsonLoader.jsons[name] : null;
+            JSONArray mod = JsonLoader.LoadedJson.ContainsKey(name) ? JsonLoader.LoadedJson[name] : null;
             JSONNode original = _loader(name);
             if (mod != null)
                 JsonUtil.Merge(original.AsArray, mod);
@@ -57,7 +56,7 @@ public class Patch
         };
     }
 
-    public static IEnumerable<CodeInstruction> _Ctor(IEnumerable<CodeInstruction> instructions)
+    internal static IEnumerable<CodeInstruction> _Ctor(IEnumerable<CodeInstruction> instructions)
     {
         foreach (CodeInstruction il in instructions)
         {
@@ -77,15 +76,4 @@ public class Patch
         }
     }
 }
-
-/*
-IL_0049: callvirt instance string DolocTown.Config.Resource.VegetationSpawnLut::get_Id()
-
-IL_004e: ldloc.1
-IL_004f: callvirt instance void class [netstandard] System.Collections.Generic.Dictionary`2<string, class DolocTown.Config.Resource.VegetationSpawnLut>::Add(!0, !1)
-IL_0049: callvirt instance string DolocTown.Config.Time.ChairProto::get_Id()
-
-IL_004E: ldloc.1
-IL_004F: callvirt instance void class [mscorlib] System.Collections.Generic.Dictionary`2<string, class DolocTown.Config.Time.ChairProto>::set_Item(!0, !1)
-*/
 //i actually also likes shiiba tsumugi
