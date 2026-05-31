@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 using SimpleJSON;
-using UnityEngine;
 
 namespace Genesis.ContentLoader;
 /// <summary>
@@ -12,6 +10,18 @@ namespace Genesis.ContentLoader;
 /// </summary>
 public class JSONOperation
 {
+    /// <summary>
+    /// Creates a json operation.
+    /// </summary>
+    /// <param name="json">The json to be parsed.</param>
+    /// <param name="assetPath">The path to be operated.</param>
+    /// <param name="opcode">The type of operation to be performed.</param>
+    public JSONOperation(JSONNode json, string assetPath, JSONOpcode opcode = JSONOpcode.Replace)
+    {
+        this.json = json;
+        this.assetPath = assetPath;
+        this.opcode = opcode;
+    }
     /// <summary>
     /// Opcode to fine-grain control where to insert json.
     /// </summary>
@@ -30,80 +40,22 @@ public class JSONOperation
         /// </summary>
         Replace = 2
     }
-    private JSONOpcode opcode = JSONOpcode.Replace;
+    private JSONOpcode opcode;
+    private string json;
+    private string assetPath;
     /// <summary>
-    /// Opcode of the 
+    /// Opcode of the operation.
     /// </summary>
     public JSONOpcode Opcode => opcode;
+    /// <summary>
+    /// The json to be parsed.
+    /// </summary>
+    public JSONNode Json => json;
+    /// <summary>
+    /// The type of operation to be performed.
+    /// </summary>
+    public string AssetPath => assetPath;
 
-}
-/// <summary>
-/// Provides information of and load content mods.
-/// </summary>
-public class ModInfo
-{
-    private string modID;
-    private string modName = "No Mod Name";
-    private string version = "No Version";
-    private string description = "No Description";
-    private string author = "No Author";
-    private List<string> dependency;
-    /// <summary>
-    /// unique ID of the mod, cannot be empty or duplicating.
-    /// </summary>
-    public string ModID => modID;
-    /// <summary>
-    /// Verbalized Name of the mod.
-    /// </summary>
-    public string ModName => modName;
-    /// <summary>
-    /// Version of the mod, customizable.
-    /// </summary>
-    public string Version => version;
-    /// <summary>
-    /// Optional description of the mod.
-    /// </summary>
-    public string Description => description;
-    /// <summary>
-    /// Author of the mod.
-    /// </summary>
-    public string Author => author;
-    /// <summary>
-    /// Other mod(in form of ModID) that is required to run this mod.
-    /// </summary>
-    public List<string> Dependency => dependency;
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="info"></param>
-    /// <exception cref="Exception"></exception>
-    public ModInfo(JSONNode info)
-    {
-        modID = info["ModID"];
-        if (string.IsNullOrWhiteSpace(modID))
-            throw new JsonParseException("ModInfo.json does not contain modID");
-        string modName = info["ModName"];
-        this.modName = string.IsNullOrWhiteSpace(modName) ? this.modName : modName;
-
-        string version = info["Version"];
-        this.version = string.IsNullOrWhiteSpace(version) ? this.version : version;
-
-        string description = info["Description"];
-        this.description = string.IsNullOrWhiteSpace(description) ? this.version : description;
-
-        string author = info["Author"];
-        this.author = string.IsNullOrWhiteSpace(author) ? this.author : author;
-
-        dependency = info["Dependency"].AsStringList ?? [];
-    }
-    /// <summary>
-    /// Converts all 
-    /// </summary>
-    /// <returns></returns>
-    public override string ToString()
-    {
-        return $"{modName}({ModID}) {version}\nauthor: {author}\ndescription: {description}\nmod dependency:[{string.Join(", ", dependency)}]";
-    }
 }
 internal class JsonUtil
 {
@@ -114,73 +66,69 @@ internal class JsonUtil
             target.Add(item);
     }
 }
-/// <summary>
-/// Parse and load json into the game.
-/// </summary>
-public class JsonLoader
+internal static class JsonLoader
 {
-    /// <summary>
-    /// Currently loaded mod, in the form of KVP of modID and ModInfo.
-    /// </summary>
-    public static Dictionary<string, ModInfo> LoadedMod = new Dictionary<string, ModInfo>();
-    /// <summary>
-    /// Currently loaded tables, in the form of KVP of table name and JsonArray.
-    /// </summary>
-    public static Dictionary<string, JSONArray> LoadedJson = new Dictionary<string, JSONArray>();
-    /// <summary>
-    /// Load json mod and modinfo from the path provided in the parameter into LoadedMod and LoadedJson.
-    /// </summary>
-    /// <param name="path">The path of the mod.</param>
-    public static void TryLoadMod(string path)
+    //ModInfo verification, made into another method because its cleaner
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static ModInfo __ldinfo(string path)
     {
         ModInfo info = null;
-        //ModInfo verification
         if (!File.Exists($"{path}/ModInfo.json"))
-            return;
-        try
-        {
-            info = new ModInfo(JSON.Parse(File.ReadAllText($"{path}/ModInfo.json")));
-        }
-        catch (Exception)
-        {
-            Util.LogString("ContentLoader", $"{path} has malformed modinfo.json, skipping", InfoType.Warning);
-            return;
-        }
-        if (LoadedMod.ContainsKey(info.ModID))
+            goto skip;
+        info = new ModInfo(JSON.Parse(File.ReadAllText($"{path}/ModInfo.json")));
+        if (ModLoader.LoadedMod.Contains(info))
         {
             Util.LogString("ContentLoader", $"{path} has same modID as another loaded mod, skipping", InfoType.Warning);
-            return;
+            goto skip;
         }
-        LoadedMod.Add(info.ModID, info);
-
-        if (Directory.Exists($"{path}/Contents"))
-            foreach (string item in Directory.GetFiles($"{path}/Contents", "*.json", SearchOption.AllDirectories))
-                LoadJson(item);
-
-        List<Task> tasks = new List<Task>();
-        if (Directory.Exists($"{path}/Assets"))
-            foreach (string item in Directory.GetFiles($"{path}/Assets", "*.*", SearchOption.AllDirectories))
-                tasks.Add(Task.Run(async () => AssetBundle.LoadFromFileAsync(item)));
-        Task isComplete = Task.WhenAll(tasks);
-        Util.LogString("ContentLoader", $"\n{info}");
+        goto ret;
+    skip:
+        return null;
+    ret:
+        return info;
     }
-
-    /// <summary>
-    /// Loads the json file provided from the path.
-    /// </summary>
-    /// <param name="path"></param>
-    public static void LoadJson(string path)
+    //will be removed for v1 support removal in the future solely on performance concerns
+    [Obsolete]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool __islegacy(JSONArray arr)
     {
-        JSONNode json = JSON.Parse(File.ReadAllText(path));
-        string tbName = json["tbname"];
-        string name = string.IsNullOrWhiteSpace(tbName) ? Path.GetFileNameWithoutExtension(path) : tbName;
-        if (!LoadedJson.ContainsKey(name))
-            LoadedJson[name] = new JSONArray();
-        JSONArray payload = string.IsNullOrWhiteSpace(tbName) ? json.AsArray : json["payload"].AsArray;
-        JsonUtil.Merge(LoadedJson[name], payload);
+        foreach (JSONNode node in arr)
+            if (__isop(node) || __istb(node))
+                return false;
+        return true;
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool __isop(JSONNode node)
+    {
+        return !(node["op"].Value.IsNullOrEmpty() || node["assetpath"].Value.IsNullOrEmpty());
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool __istb(JSONNode node)
+    {
+        return !node["tbname"].Value.IsNullOrEmpty();
+    }
+    //loads up file then parse the whole file into one or multiple JSONNode.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static List<JSONNode> __ldjson(string path)
+    {
+        JSONNode json = JSON.Parse(path);
+        if (json.IsArray && __islegacy(json.AsArray))
+        {
+            JSONNode node = JSON.Parse($"{{\"tbname\": \"{Path.GetFileNameWithoutExtension(path)}\"}}");
+            node.Add("payload", json);
+            return new List<JSONNode>() { node };
+        }
+        List<JSONNode> list = new List<JSONNode>();
+        if (json.IsArray &&)
+        {
+
+            foreach (JSONNode node )
+        }
+        else if (json.IsArray && json.Count <= 1)
+            list.Add(json);
+        return list;
     }
 }
-
 /// <summary>
 /// Custom exception for JSON parsing exceptions.
 /// </summary>
@@ -194,4 +142,7 @@ public class JsonParseException : Exception
     protected JsonParseException(System.Runtime.Serialization.SerializationInfo info,
                                 System.Runtime.Serialization.StreamingContext context)
         : base(info, context) { }
+#pragma warning restore
 }
+
+//Yoruno Sakura my beloved
