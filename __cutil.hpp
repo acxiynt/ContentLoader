@@ -15,6 +15,7 @@ typedef struct
 
 typedef struct
 {
+    char16_t global_buf;
     char16_t** enable;
     char16_t** disable;
     int ecount;
