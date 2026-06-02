@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 namespace Genesis.ContentLoader
 {
     /// <summary>
@@ -58,9 +56,8 @@ namespace Genesis.ContentLoader
         /// <param name="keys">List of the key to be removed.</param>
         public static void Remove<TKey, TValue>(this Dictionary<TKey, TValue> dict, IEnumerable<TKey> keys)
         {
-            if (keys is List<TKey>)
+            if (keys is List<TKey> _keys)
             {
-                List<TKey> _keys = (List<TKey>)keys;
                 for (int i = 0; i < _keys.Count; i++)
                     dict.Remove(_keys[i]);
                 return;

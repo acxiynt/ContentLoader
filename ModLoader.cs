@@ -4,14 +4,16 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Microsoft.VisualBasic;
+using DolocTown;
 using SimpleJSON;
 
 namespace Genesis.ContentLoader
 {
+    //for interop with genesis.swacl.0
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct __depresult
     {
+        internal char* __global_buf;
         internal char** enable;
         internal char** disable;
         internal int ecount;
@@ -230,6 +232,7 @@ namespace Genesis.ContentLoader
         {
             DisabledMod = new HashSet<string>(modIDs);
         }
+
         internal static bool __loadmod(string path)
         {
             ModInfo info = JsonLoader.__ldinfo(path);
@@ -249,46 +252,152 @@ namespace Genesis.ContentLoader
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private unsafe delegate __depresult solvedep(char** _loaded, __mod_kvp* _toload, int loadedlen, int toloadlen);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static __mod_kvp __newkvp(string id, string[] dep)
-        {
-            unsafe
-            {
-                char** ptr = (char**)Marshal.AllocHGlobal(dep.Length * IntPtr.Size);
-                for (int i = 0; i < dep.Length; i++)
-                    ptr[i] = (char*)Marshal.StringToHGlobalUni(dep[i])
-                return new __mod_kvp { id, }
-            }
-        }
-        //recursion replaced by goto for no potential stack overflow.
-        internal static void __resolvedeps()
-        {
 
-            if (ModWithDependency.Count < 20)
-                goto noacl;
-            __depresult result;
-            unsafe
+        private unsafe delegate __depresult* solvedep(char** _loaded, __mod_kvp* _toload, int loadedlen, int toloadlen);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+
+        //adding out __buf for easy cleanup
+        private static unsafe char** __strarrtoptr(string[] arr, out char* __buf)
+        {
+            int size = 0;
+            int charsize = sizeof(char);
+
+            for (int i = 0; i < arr.Length; i++)
             {
-                string path = $"{Config.GetConfig("Path", "AssemblyPath")}\\genesis.swacl.0.dll";
-                IntPtr lib = (IntPtr)0;
-                if (File.Exists(path))
-                    lib = NativeLibrary.Load(path);
-                if ((long)lib == 0)
-                    goto noacl;
-                NativeLibrary.TryGetExport(lib, "solvedep", out IntPtr _func);
-                if ((long)_func == 0)
-                {
-                    NativeLibrary.Free(lib);
-                    goto noacl;
-                }
-                solvedep func = Marshal.GetDelegateForFunctionPointer<solvedep>(_func);
-                List<__mod_kvp> kvp = new List<__mod_kvp>();
-                foreach (KeyValuePair<string, Mod> pair in ModWithDependency)
-                    kvp.Add(__newkvp(pair.Key, pair.Value.Info.Dependency.ToArray()));
-                fixed (void* __kvp = kvp.ToArray(), __loaded = LoadedMod.Keys.Select(s => s.ToCharArray()).ToArray();)
-                result = func((char**)LoadedMod.Keys.ToArray(), (__mod_kvp*)__kvp, LoadedMod.Keys.Count, kvp.Count);
+                if (arr[i] == null)
+                    throw new ArgumentNullException($"Array 0X{RuntimeHelpers.GetHashCode(arr): X} contains null string");
+                size += (arr[i].Length + 1) * charsize;
             }
+
+
+            //mallocing once is faster than mallocing twice
+            __buf = (char*)Marshal.AllocHGlobal(size + (sizeof(IntPtr) * arr.Length));
+            char** ptr = (char**)((byte*)__buf + size);
+
+            int off = 0;
+
+            //parses string[] into the big char* buffer, then re-wrap the char* buffer into char**
+            for (int i = 0; i < arr.Length; i++)
+            {
+                int len = arr[i].Length;
+                fixed (char* str = arr[i])
+                    Buffer.MemoryCopy(str, __buf + off, (len + 1) * charsize, len * charsize);
+                __buf[off + len] = '\0';
+                ptr[i] = &__buf[off];
+                off += len + 1;
+            }
+            return ptr;
+        }
+        /// <summary>
+        /// Creates a __mod_kvp* out of all ModWithDependency with a buffer pointing all the memory it allowcated. <br/>
+        /// The memory have a layout of 4 areas, shown below:<br/>
+        /// Main string / String pointer for mod strings / Dependency pointer pointing the second area / The kvps stored in pointer(this is what this method returns)
+        /// </summary>
+        /// <param name="__buf">the pointer of its global memory for easy cleanups.</param>
+        /// <param name="count">the number of elements inside the created pointer.</param>
+        /// <returns>the pointer of initialized __mod_kvp*.</returns>
+        private static unsafe __mod_kvp* __getmodkvps(out char* __buf, out int count)
+        {
+            //single malloc
+            int size = 0;
+            int charsize = sizeof(char);
+            count = ModWithDependency.Count;
+
+            //how many char** do we need to preallowcate for dependency (yes the deps is a char***)
+            int depsize = 0;
+
+            //how many space for char** do we need to preallowcate for dependency
+            int deplen = 0;
+
+            foreach (KeyValuePair<string, Mod> pair in ModWithDependency)
+            {
+                size += (pair.Key.Length + 1) * charsize;
+                foreach (string dep in pair.Value.Info.Dependency)
+                {
+                    size += (dep.Length + 1) * charsize;
+                    deplen += sizeof(IntPtr);
+                }
+                depsize += sizeof(IntPtr);
+            }
+
+            // buffer have 4 layers
+            __buf = (char*)Marshal.AllocHGlobal(size + deplen + depsize + (sizeof(__mod_kvp) * count));
+
+            char*** deps = (char***)((byte*)__buf + size + deplen);
+
+            __mod_kvp* kvps = (__mod_kvp*)((byte*)__buf + size + deplen + depsize);
+            KeyValuePair<string, string[]>[] _kvps =
+                ModWithDependency.Select(
+                    pair => new KeyValuePair<string, string[]>(
+                        pair.Key, pair.Value.Info.Dependency.ToArray())).ToArray();
+
+            int off = 0;
+            int offdep = 0;
+            int strsize;
+            for (int a = 0; a < count; a++)
+            {
+                //pushes id into buffer
+                string str = _kvps[a].Key;
+                int len = str.Length;
+                strsize = (len + 1) * charsize;
+                fixed (char* id = str)
+                    Buffer.MemoryCopy(id, __buf + off, strsize, strsize - charsize);
+                kvps[a].id = __buf + off;
+                off += len + 1;
+                __buf[off - 1] = '\0';
+
+                //gradually initializes char** areas
+                int _deplen = _kvps[a].Value.Length;
+                deps[a] = (char**)((byte*)__buf + size + offdep);
+                offdep += _deplen * sizeof(IntPtr);
+
+                //pushes dependencies into buffer
+                for (int b = 0; b < _kvps[a].Value.Length; b++)
+                {
+                    str = _kvps[a].Value[b];
+                    len = str.Length;
+                    strsize = (len + 1) * charsize;
+                    fixed (char* id = str)
+                        Buffer.MemoryCopy(id, __buf + off, strsize, strsize - charsize);
+                    deps[a][b] = __buf + off;
+                    off += len + 1;
+                    __buf[off - 1] = '\0';
+                }
+
+                kvps[a].depcount = _kvps[a].Value.Length;
+                kvps[a].dep = deps[a];
+            }
+            return kvps;
+        }
+
+        //recursion replaced by goto for no potential stack overflow.
+        internal unsafe static void __resolvedeps()
+        {
+            //making sure if software accel worth the marshalling
+            if (ModWithDependency.Count < 50)
+                goto noacl;
+
+            string path = $"{Config.GetConfig("Path", "AssemblyPath")}\\genesis.swacl.0.dll";
+            const long nullptr = 0;
+            IntPtr lib = (IntPtr)nullptr;
+            if (File.Exists(path))
+                lib = NativeLibrary.Load(path);
+            if ((long)lib == nullptr)
+                goto noacl;
+
+            NativeLibrary.TryGetExport(lib, "solvedep", out IntPtr _func);
+            if ((long)_func == nullptr)
+            {
+                NativeLibrary.Free(lib);
+                goto noacl;
+            }
+
+            __depresult* result = (__depresult*)0;
+            solvedep func = Marshal.GetDelegateForFunctionPointer<solvedep>(_func);
+            result = func(__strarrtoptr(LoadedMod.Keys.ToArray(), out char* __modbuf), __getmodkvps(out char* __kvpbuf, out int kvpcount), LoadedMod.Keys.Count, kvpcount);
+
+            goto swacl_cleanup;
+
         noacl:
             List<string> remove = new List<string>();
         recur:
@@ -330,6 +439,38 @@ namespace Genesis.ContentLoader
                 goto recur;
             }
             return;
+
+        swacl_cleanup:
+
+            NativeLibrary.Free(lib);
+
+            if ((long)result == nullptr)
+            {
+                Util.LogString("ContentLoader", "Software acceleration failed, falling back to noacl", InfoType.Warning);
+                goto noacl;
+            }
+
+            for (int i = 0; i < result->dcount; i++)
+            {
+                string mod = new string(result->disable[i]);
+                ModWithDependency.Remove(mod);
+                DisabledMod.Add(mod);
+            }
+            for (int i = 0; i < result->ecount; i++)
+            {
+                string mod = new string(result->enable[i]);
+                LoadedMod.Add(mod, ModWithDependency[mod]);
+                ModWithDependency.Remove(mod);
+            }
+
+            //global buffer made cleanup easy
+            Marshal.FreeHGlobal((IntPtr)__modbuf);
+            Marshal.FreeHGlobal((IntPtr)__kvpbuf);
+            Marshal.FreeHGlobal((IntPtr)result->__global_buf);
+
+            return;
         }
     }
 }
+
+//fun fact: half of this source file are for the interop.
