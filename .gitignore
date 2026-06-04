@@ -4,3 +4,5 @@ bin
 include
 .vs
 .vscode
+./out
+build
