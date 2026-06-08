@@ -1,9 +1,10 @@
 #ifndef CUTIL_H
 #define CUTIL_H
 #ifndef EXPORT
-#define EXPORT __attribute__((visibility("default")))
 #if _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
 #endif
 #endif
 #include <stdlib.h>
@@ -18,11 +19,18 @@ typedef struct
 
 typedef struct
 {
-    void *global_buf;
     char16_t **enable;
     char16_t **disable;
     int ecount;
     int dcount;
 } depresult;
+
+typedef enum
+{
+    unvisited,
+    visiting,
+    complete,
+    fail
+} status;
 
 #endif

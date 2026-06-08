@@ -2,30 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using DolocTown;
 using SimpleJSON;
 
 namespace Genesis.ContentLoader
 {
-    //for interop with genesis.swacl.0
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe struct __depresult
-    {
-        internal char* __global_buf;
-        internal char** enable;
-        internal char** disable;
-        internal int ecount;
-        internal int dcount;
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe struct __mod_kvp
-    {
-        internal char* id;
-        internal char** dep;
-        internal int depcount;
-    }
     /// <summary>
     /// Provides information of and load content mods.
     /// </summary>
@@ -110,6 +91,46 @@ namespace Genesis.ContentLoader
             if (obj.GetType() == typeof(ModInfo) && ((ModInfo)obj).modID == modID)
                 return true;
             return false;
+        }
+    }
+    /// <summary>
+    /// Storage class for why a mod is disabled
+    /// </summary>
+    public class DisabledContext
+    {
+
+        private string[] missingDependency = null;
+
+        /// <summary>
+        /// Missing Dependency
+        /// </summary>
+        public string[] MissingDependency => missingDependency;
+
+        /// <summary>
+        /// Disabled Reason stored as a enum.
+        /// </summary>
+        public enum DisabledReason
+        {
+
+            /// <summary>
+            /// Mod got automatically disabled due to a crash.
+            /// </summary>
+            Crashed = 0,
+
+            /// <summary>
+            /// Mod loader refuses to load the mod due to circular dependency.
+            /// </summary>
+            Circular = 1,
+
+            /// <summary>
+            /// Mod loader refuses to load the mod due to missing dependency.
+            /// </summary>
+            Dependency = 2,
+
+            /// <summary>
+            /// Mod disabled per-user.
+            /// </summary>
+            User = 3
         }
     }
     /// <summary>
@@ -233,143 +254,28 @@ namespace Genesis.ContentLoader
             DisabledMod = new HashSet<string>(modIDs);
         }
 
-        internal static bool __loadmod(string path)
+        internal static void __loadmod(string path)
         {
             ModInfo info = JsonLoader.__ldinfo(path);
+            bool success = true;
             if (info == null)
-                return false;
+                success = false; ;
             List<JSONNode> nodes = new List<JSONNode>();
             if (Directory.Exists($"{path}/Contents"))
                 foreach (string item in Directory.GetFiles($"{path}/Contents", "*.json", SearchOption.AllDirectories))
-                    nodes.AddRange(JsonLoader.__ldjson(path));
+                    nodes.AddRange(JsonLoader.__ldjson(item));
             JsonLoader.__resolvenodes(nodes, out Dictionary<string, JSONArray> tb, out Dictionary<string, JSONOperation> op, path);
             Mod mod = new Mod(info, tb, op);
             if (mod.HasDependency())
                 ModWithDependency.Add(info.ModID, mod);
             else
                 LoadedMod.Add(info.ModID, mod);
-            return true;
+            if (success)
+                Util.LogString("ContentLoader", $"{info}");
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-
-        private unsafe delegate __depresult* solvedep(char** _loaded, __mod_kvp* _toload, int loadedlen, int toloadlen);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-
-        //adding out __buf for easy cleanup
-        private static unsafe char** __strarrtoptr(string[] arr, out char* __buf)
-        {
-            int size = 0;
-            int charsize = sizeof(char);
-
-            for (int i = 0; i < arr.Length; i++)
-            {
-                if (arr[i] == null)
-                    throw new ArgumentNullException($"Array 0X{RuntimeHelpers.GetHashCode(arr): X} contains null string");
-                size += (arr[i].Length + 1) * charsize;
-            }
-
-
-            //mallocing once is faster than mallocing twice
-            __buf = (char*)Marshal.AllocHGlobal(size + (sizeof(IntPtr) * arr.Length));
-            char** ptr = (char**)((byte*)__buf + size);
-
-            int off = 0;
-
-            //parses string[] into the big char* buffer, then re-wrap the char* buffer into char**
-            for (int i = 0; i < arr.Length; i++)
-            {
-                int len = arr[i].Length;
-                fixed (char* str = arr[i])
-                    Buffer.MemoryCopy(str, __buf + off, (len + 1) * charsize, len * charsize);
-                __buf[off + len] = '\0';
-                ptr[i] = &__buf[off];
-                off += len + 1;
-            }
-            return ptr;
-        }
-        /// <summary>
-        /// Creates a __mod_kvp* out of all ModWithDependency with a buffer pointing all the memory it allowcated. <br/>
-        /// The memory have a layout of 4 areas, shown below:<br/>
-        /// Main string / String pointer for mod strings / Dependency pointer pointing the second area / The kvps stored in pointer(this is what this method returns)
-        /// </summary>
-        /// <param name="__buf">the pointer of its global memory for easy cleanups.</param>
-        /// <param name="count">the number of elements inside the created pointer.</param>
-        /// <returns>the pointer of initialized __mod_kvp*.</returns>
-        private static unsafe __mod_kvp* __getmodkvps(out char* __buf, out int count)
-        {
-            //single malloc
-            int size = 0;
-            int charsize = sizeof(char);
-            count = ModWithDependency.Count;
-
-            //how many char** do we need to preallowcate for dependency (yes the deps is a char***)
-            int depsize = 0;
-
-            //how many space for char** do we need to preallowcate for dependency
-            int deplen = 0;
-
-            foreach (KeyValuePair<string, Mod> pair in ModWithDependency)
-            {
-                size += (pair.Key.Length + 1) * charsize;
-                foreach (string dep in pair.Value.Info.Dependency)
-                {
-                    size += (dep.Length + 1) * charsize;
-                    deplen += sizeof(IntPtr);
-                }
-                depsize += sizeof(IntPtr);
-            }
-
-            // buffer have 4 layers
-            __buf = (char*)Marshal.AllocHGlobal(size + deplen + depsize + (sizeof(__mod_kvp) * count));
-
-            char*** deps = (char***)((byte*)__buf + size + deplen);
-
-            __mod_kvp* kvps = (__mod_kvp*)((byte*)__buf + size + deplen + depsize);
-            KeyValuePair<string, string[]>[] _kvps =
-                ModWithDependency.Select(
-                    pair => new KeyValuePair<string, string[]>(
-                        pair.Key, pair.Value.Info.Dependency.ToArray())).ToArray();
-
-            int off = 0;
-            int offdep = 0;
-            int strsize;
-            for (int a = 0; a < count; a++)
-            {
-                //pushes id into buffer
-                string str = _kvps[a].Key;
-                int len = str.Length;
-                strsize = (len + 1) * charsize;
-                fixed (char* id = str)
-                    Buffer.MemoryCopy(id, __buf + off, strsize, strsize - charsize);
-                kvps[a].id = __buf + off;
-                off += len + 1;
-                __buf[off - 1] = '\0';
-
-                //gradually initializes char** areas
-                int _deplen = _kvps[a].Value.Length;
-                deps[a] = (char**)((byte*)__buf + size + offdep);
-                offdep += _deplen * sizeof(IntPtr);
-
-                //pushes dependencies into buffer
-                for (int b = 0; b < _kvps[a].Value.Length; b++)
-                {
-                    str = _kvps[a].Value[b];
-                    len = str.Length;
-                    strsize = (len + 1) * charsize;
-                    fixed (char* id = str)
-                        Buffer.MemoryCopy(id, __buf + off, strsize, strsize - charsize);
-                    deps[a][b] = __buf + off;
-                    off += len + 1;
-                    __buf[off - 1] = '\0';
-                }
-
-                kvps[a].depcount = _kvps[a].Value.Length;
-                kvps[a].dep = deps[a];
-            }
-            return kvps;
-        }
-
+        private unsafe delegate __depresult* solvedep(char** _loaded, __mod_kvp* _toload, int loadedlen, int toloadlen, char*** _disabled_reason);
         //recursion replaced by goto for no potential stack overflow.
         internal unsafe static void __resolvedeps()
         {
@@ -377,7 +283,7 @@ namespace Genesis.ContentLoader
             if (ModWithDependency.Count < 50)
                 goto noacl;
 
-            string path = $"{Config.GetConfig("Path", "AssemblyPath")}\\genesis.swacl.0.dll";
+            string path = $"{Config.GetConfig("Path", "AssemblyPath")}\\genesis.swacl.so.0";
             const long nullptr = 0;
             IntPtr lib = (IntPtr)nullptr;
             if (File.Exists(path))
@@ -393,8 +299,10 @@ namespace Genesis.ContentLoader
             }
 
             __depresult* result = (__depresult*)0;
+            char*** reason = (char***)Marshal.AllocHGlobal(sizeof(IntPtr));
             solvedep func = Marshal.GetDelegateForFunctionPointer<solvedep>(_func);
-            result = func(__strarrtoptr(LoadedMod.Keys.ToArray(), out char* __modbuf), __getmodkvps(out char* __kvpbuf, out int kvpcount), LoadedMod.Keys.Count, kvpcount);
+
+            result = func(InteropHelper.__strarrtoptr(LoadedMod.Keys.ToArray()), InteropHelper.__getmodkvps(out int kvpcount), LoadedMod.Keys.Count, kvpcount, reason);
 
             goto swacl_cleanup;
 
@@ -463,14 +371,30 @@ namespace Genesis.ContentLoader
                 ModWithDependency.Remove(mod);
             }
 
-            //global buffer made cleanup easy
-            Marshal.FreeHGlobal((IntPtr)__modbuf);
-            Marshal.FreeHGlobal((IntPtr)__kvpbuf);
-            Marshal.FreeHGlobal((IntPtr)result->__global_buf);
+            //frees the block
+            Marshal.FreeHGlobal((IntPtr)result);
 
             return;
         }
+
+        //resolves every JSONOperation loaded.
+        static internal void __resolveops()
+        {
+
+        }
+
+        //combine every json mod into a dictionary of tables.
+        static internal Dictionary<string, JSONArray> __mergejson()
+        {
+            Dictionary<string, JSONArray> dict = new Dictionary<string, JSONArray>();
+            foreach (Mod mod in LoadedMod.Values)
+                foreach (KeyValuePair<string, JSONArray> pair in mod.Table)
+                {
+                    if (dict.ContainsKey(pair.Key))
+                        JsonUtil.Merge(dict[pair.Key], pair.Value);
+                    else dict[pair.Key] = pair.Value;
+                }
+            return dict;
+        }
     }
 }
-
-//fun fact: half of this source file are for the interop.
