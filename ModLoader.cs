@@ -211,10 +211,6 @@ namespace Genesis.ContentLoader
         /// Mods that dont have required prerequisite or disabled by user
         /// </summary>
         public static HashSet<string> DisabledMod = new HashSet<string>();
-        internal static void Start()
-        {
-
-        }
         /// <summary>
         /// Hot reload and rediscover mod for mod GUI inside main menu.
         /// </summary>
@@ -259,7 +255,12 @@ namespace Genesis.ContentLoader
             ModInfo info = JsonLoader.__ldinfo(path);
             bool success = true;
             if (info == null)
-                success = false; ;
+                success = false;
+            if (DisabledMod.Contains(info.ModID))
+            {
+                success = false;
+                goto end;
+            }
             List<JSONNode> nodes = new List<JSONNode>();
             if (Directory.Exists($"{path}/Contents"))
                 foreach (string item in Directory.GetFiles($"{path}/Contents", "*.json", SearchOption.AllDirectories))
@@ -270,6 +271,7 @@ namespace Genesis.ContentLoader
                 ModWithDependency.Add(info.ModID, mod);
             else
                 LoadedMod.Add(info.ModID, mod);
+        end:
             if (success)
                 Util.LogString("ContentLoader", $"{info}");
         }

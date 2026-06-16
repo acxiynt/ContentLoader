@@ -9,7 +9,6 @@ namespace Genesis.ContentLoader
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct __depresult
     {
-        internal char* __global_buf;
         internal char** enable;
         internal char** disable;
         internal int ecount;

@@ -25,12 +25,4 @@ typedef struct
     int dcount;
 } depresult;
 
-typedef enum
-{
-    unvisited,
-    visiting,
-    complete,
-    fail
-} status;
-
 #endif
