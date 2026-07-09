@@ -17,11 +17,13 @@ namespace Genesis.ContentLoader
         /// <param name="tableName">The table to be operated.</param>
         /// <param name="assetPath">The path to be operated.</param>
         /// <param name="opcode">The type of operation to be performed.</param>
-        public JSONOperation(string tableName, string assetPath, JSONOpcode opcode = JSONOpcode.Replace)
+        /// <param name="payload">The data payload to be added/replaced.</param>
+        public JSONOperation(string tableName, string assetPath, JSONOpcode opcode = JSONOpcode.Replace, JSONNode payload = null)
         {
             this.tableName = tableName;
             this.assetPath = assetPath;
             this.opcode = opcode;
+            this.payload = payload;
         }
         /// <summary>
         /// Opcode to fine-grain control where to insert json.
@@ -44,27 +46,36 @@ namespace Genesis.ContentLoader
         private JSONOpcode opcode;
         private string tableName;
         private string assetPath;
+        private JSONNode payload;
+
         /// <summary>
         /// Opcode of the operation.
         /// </summary>
         public JSONOpcode Opcode => opcode;
+
         /// <summary>
-        /// The json to be parsed.
+        /// The json table name to be parsed.
         /// </summary>
-        public JSONNode TableName => tableName;
+        public string TableName => tableName;
+
         /// <summary>
         /// The type of operation to be performed.
         /// </summary>
         public string AssetPath => assetPath;
 
+        /// <summary>
+        /// The data payload you want to 
+        /// </summary>
+        public JSONNode Payload => payload;
+
     }
     internal class JsonUtil
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void Merge(JSONArray target, JSONArray toMerge)
+        internal static void Merge(JSONArray to, JSONArray from)
         {
-            foreach (JSONNode item in toMerge)
-                target.Add(item);
+            foreach (JSONNode item in from)
+                to.Add(item);
         }
     }
     //__<func> is for internal call that should be in one method but separated for code clarity
@@ -83,26 +94,18 @@ namespace Genesis.ContentLoader
                 Util.LogString("ContentLoader", $"{path} has same modID as another loaded mod, skipping", InfoType.Warning);
                 goto skip;
             }
+            else if (ModLoader.LoadedMod.ContainsKey(info.ModID))
+                goto skip;
             goto ret;
         skip:
             return null;
         ret:
             return info;
         }
-        //will be removed for v1 support removal in the future solely on performance concerns
-        [Obsolete]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static bool __islegacy(JSONArray arr)
-        {
-            foreach (JSONNode node in arr)
-                if (__isop(node) || __istb(node))
-                    return false;
-            return true;
-        }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static bool __isop(JSONNode node)
         {
-            return !(node["op"].Value.IsNullOrEmpty() || node["assetpath"].Value.IsNullOrEmpty() || node["tbname"].Value.IsNullOrEmpty());
+            return !node["op"].Value.IsNullOrEmpty() && !node["assetpath"].Value.IsNullOrEmpty();
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static bool __istb(JSONNode node)
@@ -114,12 +117,6 @@ namespace Genesis.ContentLoader
         internal static List<JSONNode> __ldjson(string path)
         {
             JSONNode json = JSON.Parse(File.ReadAllText(path));
-            if (json.IsArray && __islegacy(json.AsArray))
-            {
-                JSONNode node = JSON.Parse($"{{\"tbname\": \"{Path.GetFileNameWithoutExtension(path)}\"}}");
-                node.Add("payload", json);
-                return new List<JSONNode>() { node };
-            }
             List<JSONNode> list = new List<JSONNode>();
             if (json.IsArray && json.AsArray.Count > 1)
             {
@@ -175,11 +172,19 @@ namespace Genesis.ContentLoader
                     opcode = JSONOperation.JSONOpcode.Replace;
                     break;
                 default:
-                    Util.LogString("ContentLoader", $"Error parsing node {i} in {path}: have unimplemented opcode, skipping", InfoType.Warning);
+                    Util.LogString("ContentLoader", $"Error parsing node {i} in {path}: Have unimplemented opcode, skipping.", InfoType.Warning);
                     error = true;
                     break;
             }
-            return new KeyValuePair<string, JSONOperation>(node["tbname"].Value, new JSONOperation(node["tbname"].Value, node["assetpath"].Value, opcode));
+
+            if (opcode != JSONOperation.JSONOpcode.Remove && node["payload"].IsNull)
+            {
+                Util.LogString("ContentLoader", $"Error parsing node {i} in {path}: Payload expected, got none; skipping.", InfoType.Warning);
+                error = true;
+                return new KeyValuePair<string, JSONOperation>();
+            }
+
+            return new KeyValuePair<string, JSONOperation>(node["tbname"].Value, new JSONOperation(node["tbname"].Value, node["assetpath"].Value, opcode, node["payload"]));
         }
     }
     /// <summary>

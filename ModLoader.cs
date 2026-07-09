@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SimpleJSON;
 
@@ -93,6 +94,9 @@ namespace Genesis.ContentLoader
             return false;
         }
     }
+
+
+
     /// <summary>
     /// Storage class for why a mod is disabled
     /// </summary>
@@ -126,13 +130,11 @@ namespace Genesis.ContentLoader
             /// Mod loader refuses to load the mod due to missing dependency.
             /// </summary>
             Dependency = 2,
-
-            /// <summary>
-            /// Mod disabled per-user.
-            /// </summary>
-            User = 3
         }
     }
+
+
+
     /// <summary>
     /// A container to pack up information of mods.
     /// </summary>
@@ -174,7 +176,7 @@ namespace Genesis.ContentLoader
             return HashCode.Combine(info.ModID);
         }
         /// <summary>
-        /// Overrides default Equals(), uses modID and returns a hash based on it.
+        /// Overrides default Equals(), returns true if the param passed is a mod or a string and the modid/string is equal to ID.
         /// </summary>
         /// <returns>The comparation result, as bool.</returns>
         public override bool Equals(object obj)
@@ -199,34 +201,36 @@ namespace Genesis.ContentLoader
     /// </summary>
     public static class ModLoader
     {
+
         /// <summary>
         /// Currently loaded mod, stored as dictionary of modID string and Mod.
         /// </summary>
         public static Dictionary<string, Mod> LoadedMod = new Dictionary<string, Mod>();
-        /// <summary>
-        /// Mods that requires other mod as dependency to run.
-        /// </summary>
-        public static Dictionary<string, Mod> ModWithDependency = new Dictionary<string, Mod>();
+
         /// <summary>
         /// Mods that dont have required prerequisite or disabled by user
         /// </summary>
         public static HashSet<string> DisabledMod = new HashSet<string>();
+
         /// <summary>
         /// Hot reload and rediscover mod for mod GUI inside main menu.
         /// </summary>
         public static void Reload()
         {
+            foreach (string mods in Directory.GetDirectories(Constant.ModPath))
+                __loadmod(mods);
+            Update();
         }
+
         /// <summary>
         /// Adds a mod into disabled list.
         /// </summary>
         /// <param name="modID">Mod to be disabled</param>
         public static void AddDisabledMod(string modID)
         {
-            if (DisabledMod.Contains(modID))
-                return;
             DisabledMod.Add(modID);
         }
+
         /// <summary>
         /// Removes a mod in the disabled list.
         /// </summary>
@@ -241,6 +245,7 @@ namespace Genesis.ContentLoader
             }
             return false;
         }
+
         /// <summary>
         /// Replaces the disable list with a new one.
         /// </summary>
@@ -249,6 +254,8 @@ namespace Genesis.ContentLoader
         {
             DisabledMod = new HashSet<string>(modIDs);
         }
+
+        internal static Dictionary<string, Mod> ModWithDependency = new Dictionary<string, Mod>();
 
         internal static void __loadmod(string path)
         {
@@ -333,6 +340,7 @@ namespace Genesis.ContentLoader
                 if (skip)
                     continue;
                 LoadedMod[pair.Key] = pair.Value;
+                Util.LogString("ContentLoader", $"{pair.Value.Info}");
                 remove.Add(pair.Value.Info.ModID);
             }
             if (!remove.Any())
@@ -380,13 +388,13 @@ namespace Genesis.ContentLoader
         }
 
         //resolves every JSONOperation loaded.
-        static internal void __resolveops()
+        internal static void __resolveops()
         {
 
         }
 
         //combine every json mod into a dictionary of tables.
-        static internal Dictionary<string, JSONArray> __mergejson()
+        internal static Dictionary<string, JSONArray> __mergejson()
         {
             Dictionary<string, JSONArray> dict = new Dictionary<string, JSONArray>();
             foreach (Mod mod in LoadedMod.Values)
@@ -397,6 +405,13 @@ namespace Genesis.ContentLoader
                     else dict[pair.Key] = pair.Value;
                 }
             return dict;
+        }
+
+        //updates the mod list after start/reload by removing every disabled mod from actively loaded mods
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void Update()
+        {
+            LoadedMod.Remove(DisabledMod);
         }
     }
 }

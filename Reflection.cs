@@ -62,11 +62,11 @@ public static class ReflectionHelper
     /// Get constructor based on the type generic passed and returns the constructor found. If not, warns and return null.
     /// </summary>
     /// <typeparam name="T">The constructor's type</typeparam>
-    /// <param name="isStatic">Is the target constructor static or not, default: false.</param>
-    /// <param name="types">The type of params to be passed into the constructor, default: new Type[0].</param>
-    /// <param name="pmod">The parameter modifier, use if a param of the constructor have any special keyword before it.</param>
+    /// <param name="static">Is the target constructor static or not. Default: false.</param>
+    /// <param name="types">The type of params to be passed into the constructor. Default: new Type[0].</param>
+    /// <param name="pmod">The parameter modifier, use if a param of the constructor have any special keyword before it. Default: new ParameterModifier[0].</param>
     /// <returns>Info of the constructor, could be null.</returns>
-    public static ConstructorInfo GetCtor<T>(bool isStatic = false, Type[] types = null, ParameterModifier[] pmod = null)
+    public static ConstructorInfo GetCtor<T>(bool @static = false, Type[] types = null, ParameterModifier[] pmod = null)
     {
         //fast return if its the only constructor
         ConstructorInfo[] infos = typeof(T).GetConstructors();
@@ -78,7 +78,7 @@ public static class ReflectionHelper
         if (types == null)
             return typeof(T).GetConstructors()[0];
         pmod = (pmod == null) ? new ParameterModifier[0] : pmod;
-        byte flags = isStatic ? (byte)0x78 : (byte)0x74;
+        byte flags = @static ? (byte)0x78 : (byte)0x74;
         ConstructorInfo info = typeof(T).GetConstructor((BindingFlags)flags, Type.DefaultBinder, types, pmod);
         if (info == null)
         {

@@ -9,7 +9,7 @@ FLAGS_PUBLISH = -shared -std=gnu++17 -o3 -s -shared
 debug:
 	@mkdir -p "$(OUT)"
 	$(CC) $(FLAGS_DEBUG) $(OBJECT) -o $(OUT)/$(TARGET)$(FTYPE)
-publish:
+release:
 	@mkdir -p "$(OUT)"
 	$(CC) $(FLAGS_PUBLISH) $(OBJECT) -o $(OUT)/$(TARGET)$(FTYPE)
 clean:

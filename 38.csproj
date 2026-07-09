@@ -28,8 +28,9 @@
     <Reference Include="UnityEngine.AssetBundleModule.dll">
       <HintPath>.\include\UnityEngine.AssetBundleModule.dll</HintPath>
     </Reference>
-  </ItemGroup>
-  <ItemGroup>
+    <Reference Include="Monomod.RuntimeDetour.dll">
+      <HintPath>.\include\Monomod.RuntimeDetour.dll</HintPath>
+    </Reference>
     <PackageReference Include="Shim4DotNetFramework.NativeLibrary" Version="1.0.0" />
   </ItemGroup>
 </Project>
