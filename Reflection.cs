@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Genesis;
+using Mono.Cecil.Cil;
+using MonoMod.Cil;
 
 /// <summary>
 /// Some reflection utils
@@ -86,5 +89,17 @@ public static class ReflectionHelper
             return null;
         }
         return info;
+    }
+
+
+
+    /// <summary>
+    /// Converts the ctor's unique signature into a verbosed, human-readable string.
+    /// </summary>
+    /// <param name="ctor">The ctor you want to verbosed into string.</param>
+    /// <returns></returns>
+    public static string Verbose(this ConstructorInfo ctor)
+    {
+        return $"{ctor.DeclaringType.Name}.ctor<{string.Join(",", ctor.GetParameters().Select(pm => pm.ParameterType.Name))}>";
     }
 }

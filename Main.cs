@@ -1,15 +1,20 @@
-﻿using DolocTown.Config;
+﻿
+
+//there is a refactor after ver95 rendering the old patch unusable, new one needs to patch if(tryadd(table)) to simply a set and send a true to the stack
+#define Ver96
+using DolocTown.Config;
 using System;
 using SimpleJSON;
-using HarmonyLib;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
-using System.Reflection.Emit;
 using DolocTown.GameData;
 using static ReflectionHelper;
-using MonoMod.RuntimeDetour;
+using static Mono.Cecil.Cil.OpCodes;
+using MonoMod.Cil;
+using Mono.Cecil.Cil;
+using Mono.Cecil;
 namespace Genesis.ContentLoader
 {
     /// <summary>
@@ -17,12 +22,12 @@ namespace Genesis.ContentLoader
     /// </summary>
     public class Main : IPluginBase
     {
+
         private static bool devmode = false;
-        private static List<Hook> hooks = new List<Hook>();
         internal static byte counter = 0;
         internal static Dictionary<string, JSONArray> jsons;
-        private static Dictionary<string, object> __strtotable = new Dictionary<string, object>();
-        private static Dictionary<Type, string> __tabletostr = new Dictionary<Type, string>();
+        internal static Dictionary<string, object> __strtotable = new Dictionary<string, object>();
+        internal static Dictionary<Type, string> __tabletostr = new Dictionary<Type, string>();
         /// <summary>
         /// Returns the dictionary for string to tables, if its not initalized, returns null instead.
         /// </summary>
@@ -31,7 +36,6 @@ namespace Genesis.ContentLoader
         /// Returns the dictionary for table type to string, if its not initalized, returns null instead.
         /// </summary>
         public static Dictionary<Type, string> TableToStr => (counter > 1) ? __tabletostr : null;
-        private static Harmony harmony;
 #pragma warning disable 1591
         public void OnGameInit() { }
         public void OnSceneLoaded() { }
@@ -39,30 +43,21 @@ namespace Genesis.ContentLoader
         //going to fully replace harmony with runtimedetour soon
         public void Init()
         {
+
+#if DEBUG
+            Util.LogString("ContentLoader", "You are using a nightly / dev version of this plugin, please download latest stable release for best experience.", InfoType.Warning);
+#endif
+
             //planning to move some IL-based patch somewhere else.
             Util.LogString("ContentLoader", "Preloading started.");
-            harmony = new Harmony("Genesis.ContentLoader");
             devmode = bool.TryParse(Config.GetConfig("Debug", "Devmode"), out devmode);
-
-            if (devmode)
-                hooks.Add(
-                    new Hook(
-                        GetMethod<GameOuterConfigSO>(nameof(GameOuterConfigSO.GetGameOuterConfig)),
-                    (Func<GameOuterConfigSO, GameOuterConfig>)Patch.__getgameouterconfig)
-                );
-            //patchall does not work for somewhat reason, have to do it manually
-            harmony.Patch(
-                typeof(Tables).GetConstructor(new Type[] { typeof(Func<string, JSONNode>) }),
-                // i was wondering why the code working previously without binding flags passed
-                prefix: new HarmonyMethod(method: GetMethod<Patch>(nameof(Patch.__tables__prefix))),
-                postfix: new HarmonyMethod(method: GetMethod<Patch>(nameof(Patch.__tables__postfix))),
-                transpiler: new HarmonyMethod(method: GetMethod<Patch>(nameof(Patch.__tables__ilmod)))
-            );
+            __patch();
 
             foreach (ConstructorInfo ctor in
                 typeof(Tables).GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(property => property.PropertyType)
                     .Select(tableTypes => tableTypes.GetConstructor(new Type[] { typeof(JSONNode) })).Where(_ctor => _ctor != null))
-                harmony.Patch(ctor, transpiler: new HarmonyMethod(method: GetMethod<Patch>(nameof(Patch.__ctor))));
+                new Patch(ctor, transpiler: patchconst.__ctor).AddPatch();
+
 
             Util.LogString("ContentLoader", "Serialization started.");
             foreach (string mods in Directory.GetDirectories(Constant.ModPath))
@@ -73,9 +68,30 @@ namespace Genesis.ContentLoader
 
             jsons = ModLoader.__mergejson();
             Util.LogString("ContentLoader", $"custom jsons loaded: [{string.Join(", ", jsons.Keys)}]");
-            //Util.LogString("ContentLoader", $"{jsons["recipe_tbdismantlerecipegroup"]}");
+
             Util.LogString("ContentLoader", $"Preloading finished, loaded {ModLoader.LoadedMod.Count} mod{(ModLoader.LoadedMod.Count > 1 ? "s" : "")}.");
         }
+
+
+
+        private static void __patch()
+        {
+            if (devmode)
+                new Patch(
+                    GetMethod<GameOuterConfigSO>(nameof(GameOuterConfigSO.GetGameOuterConfig)),
+                    prefix: GetMethod<patchconst>(nameof(patchconst.__getgameouterconfig)),
+                    replace: true
+                ).AddPatch();
+
+            new Patch(
+                typeof(Tables).GetConstructor(new Type[] { typeof(Func<string, JSONNode>) }),
+                prefix: GetMethod<patchconst>(nameof(patchconst.__tables__prefix)),
+                postfix: GetMethod<patchconst>(nameof(patchconst.__tables__postfix)),
+                transpiler: patchconst.__tables__ilmod
+            ).AddPatch();
+        }
+
+
 
         internal static void __postinit()
         {
@@ -87,7 +103,11 @@ namespace Genesis.ContentLoader
             if (devmode)
                 Util.LogString("ContentLoader", "Devmode active, press F1 to open console.");
         }
+
 #pragma warning restore
+
+
+
         /// <summary>
         /// For the GUI part, called when reload button is pressed.
         /// </summary>
@@ -99,6 +119,9 @@ namespace Genesis.ContentLoader
             jsons = ModLoader.__mergejson();
             DolocConfig.Reload();
         }
+
+
+
         /// <summary>
         /// For the GUI part, called when mod list is refreshed.
         /// </summary>
@@ -108,10 +131,10 @@ namespace Genesis.ContentLoader
         }
     }
 
-    internal class Patch
+    internal class patchconst
     {
         //kept as prefix because it can still help relieve the pain of loading jsons
-        internal static void __tables__prefix(ref Func<string, JSONNode> loader)
+        internal static void __tables__prefix(Tables @this, ref Func<string, JSONNode> loader)
         {
             Func<string, JSONNode> _loader = loader;
             loader = name =>
@@ -124,12 +147,11 @@ namespace Genesis.ContentLoader
                     filePtr.WriteLine(json.ToString(2));
                     filePtr.Close();
                 }
-                //evil "proto" suffix wasted me 1 hour debugging for why its not loading tables
 
                 JSONArray mod = Main.jsons.ContainsKey(name) ? Main.jsons[name] : null;
                 JSONNode original = _loader(name);
 
-                //ver 96 seems to freeze when jsonarray is altered, have to see source
+                //note: have to change __ctor for ver 96
                 if (mod != null)
                 {
                     Util.LogString("ContentLoader", $"loading {name}");
@@ -139,64 +161,84 @@ namespace Genesis.ContentLoader
             };
         }
 
-        internal static IEnumerable<CodeInstruction> __ctor(IEnumerable<CodeInstruction> instructions)
+        internal static void __ctor(ILCursor cur)
         {
 
-            //for ver 96, have to put one after stloc 1 and immidiately call continue afterwards
-            foreach (CodeInstruction il in instructions)
+#if Ver95
+            foreach (Instruction inst in cur.GetEnumerable())
             {
                 //for ver 95
-                if (il.opcode == OpCodes.Callvirt &&
-                    il.operand is MethodInfo method &&
-                    method.Name == "Add" &&
-                    method.DeclaringType.IsGenericType &&
-                    method.DeclaringType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
-                {
-                    MethodInfo setter = method.DeclaringType.GetProperty("Item").GetSetMethod();
-                    yield return new CodeInstruction(OpCodes.Callvirt, setter);
-                }
-                //for ver 96, bypasses the error branch, both brfalse and brfalse.s contains for whatever reason
-                else if (il.opcode == OpCodes.Brfalse_S || il.opcode == OpCodes.Brfalse)
-                {
-                    yield return new CodeInstruction(OpCodes.Nop);
-                }
-
-                //for ver 96, replace tryadd() with set_item
-                else if (il.opcode == OpCodes.Callvirt &&
-                    il.operand is MethodInfo _method &&
-                    _method.Name == "TryAdd" &&
+                if (inst.OpCode == Callvirt &&
+                    inst.Operand is MethodInfo _method &&
+                    _method.Name == "Add" &&
                     _method.DeclaringType.IsGenericType &&
                     _method.DeclaringType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
                 {
-                    MethodInfo setter = _method.DeclaringType.GetProperty("Item").GetSetMethod();
-                    yield return new CodeInstruction(OpCodes.Callvirt, setter);
+                    MethodInfo setter = ((MethodInfo)inst.Operand).DeclaringType.GetProperty("Item").GetSetMethod();
+                    inst.Operand = setter;
+                }
+            }
+#elif Ver96
+
+#if DEBUG
+
+#endif
+            List<Instruction> instrs = new List<Instruction>();
+            //find the tryadd()
+            foreach (Instruction inst in cur.Instrs)
+                if (inst.OpCode == Callvirt &&
+                    inst.Operand is MethodReference _method &&
+                    _method.Name.Contains("TryAdd"))
+                {
+                    //doing stuff that modifies the list while enumerating it is a UB and in this case, it throws.
+                    instrs.Add(inst);
                 }
 
-                else yield return il;
+            foreach (Instruction inst in instrs)
+            {
+                //replace if(tryadd()) with dictionary_set()
+                MethodReference method = (MethodReference)inst.Operand;
+                GenericInstanceType type = (GenericInstanceType)method.DeclaringType;
+                MethodReference setter = new MethodReference("set_Item", cur.Context.Method.Module.TypeSystem.Void, type)
+                {
+                    HasThis = true,
+                };
+                setter.Parameters.Add(new ParameterDefinition(type.GenericArguments[0]));
+                setter.Parameters.Add(new ParameterDefinition(type.GenericArguments[1]));
+                inst.Operand = setter;
+
+                //faster and even more efficient than adding a extra ldc_i4_1
+                if (inst.Next.OpCode == Brfalse || inst.Next.OpCode == Brfalse_S)
+                    inst.Next.OpCode = Nop;
+                else if (inst.Next.OpCode == Brtrue || inst.Next.OpCode == Brtrue_S)
+                    inst.Next.OpCode = Br_S;
             }
+
+            //somehow my brain is wired enough to do those stuff so inefficient and now here goes the cleanest solution
+#endif
         }
 
         //i swear to god transpiler is way better than either postfix or prefix
-        internal static IEnumerable<CodeInstruction> __tables__ilmod(IEnumerable<CodeInstruction> instructions)
+        internal static void __tables__ilmod(ILCursor cur)
         {
-            foreach (CodeInstruction il in instructions)
-                //true unique instruction in the ctor
-                if (il.opcode == OpCodes.Stloc_0)
-                {
-                    yield return il;
-                    //self explaintory
-                    yield return new CodeInstruction(OpCodes.Ldloc_0);
-                    yield return new CodeInstruction(OpCodes.Stsfld, AccessTools.Field("Genesis.ContentLoader.Main:__strtotable"));
+            //true unique instruction in the ctor
 
-                    //push this
-                    yield return new CodeInstruction(OpCodes.Ldarg_0);
-                    //push this->_dataFileMap; pop
-                    yield return new CodeInstruction(OpCodes.Ldfld, AccessTools.Field("DolocTown.Config.Tables:_dataFileMap"));
-                    //pop Main::__tabletostr 
-                    yield return new CodeInstruction(OpCodes.Stsfld, AccessTools.Field("Genesis.ContentLoader.Main:__tabletostr"));
-                }
-                else
-                    yield return il;
+            if (cur.TryFindNext(out ILCursor[] curs, (inst) => { return inst.OpCode == Stloc_0 ? true : false; }))
+            {
+                if (curs.Length != 0)
+                    return;
+
+                //self explaintory
+                curs[0].Emit(Ldloc_0);
+                curs[0].Emit(Stsfld, GetField<Main>(nameof(Main.__strtotable)));
+
+                //push this
+                curs[0].Emit(Ldarg_0);
+                //push this->_dataFileMap; pop
+                curs[0].Emit(Ldfld, GetField<Tables>("_dataFileMap"));
+                //pop Main::__tabletostr 
+                curs[0].Emit(Stsfld, GetField<Main>(nameof(Main.__tabletostr)));
+            }
         }
 
         internal static void __tables__postfix()
@@ -208,7 +250,7 @@ namespace Genesis.ContentLoader
         }
 
         //for instance methods, arg0 is void* this, therefore replacing it need to add a @this parameter
-        internal static GameOuterConfig __getgameouterconfig(GameOuterConfigSO @this)
+        internal static GameOuterConfig __getgameouterconfig()
         {
             return new GameOuterConfig(true, true, true, true);
         }

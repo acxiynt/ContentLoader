@@ -9,10 +9,24 @@
     <LangVersion>7</LangVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+  <Target Name="CopyRequiredAssemblies" AfterTargets="Build">
+    <ItemGroup>
+      <RequiredAssemblies Include="$(NuGetPackageRoot)mono.cecil\0.11.4\lib\netstandard2.0\Mono.Cecil.dll" />
+      <RequiredAssemblies Include="$(NuGetPackageRoot)monomod.utils\22.5.1.1\lib\netstandard2.0\MonoMod.Utils.dll" />
+      <RequiredAssemblies Include="$(NuGetPackageRoot)monomod.runtimedetour\22.5.1.1\lib\netstandard2.0\MonoMod.RuntimeDetour.dll" />
+      <RequiredAssemblies Include="$(NuGetPackageRoot)nativelibraryloader\1.0.13\lib\netstandard2.0\NativeLibraryLoader.dll" />
+    </ItemGroup>
+
+    <Copy
+      SourceFiles="@(RequiredAssemblies)"
+      DestinationFolder="$(TargetDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
   <ItemGroup>
-    <Reference Include="0Harmony.dll">
-      <HintPath>.\include\0Harmony.dll</HintPath>
-    </Reference>
+    <PackageReference Include="Mono.Cecil" Version="0.11.4" />
+    <PackageReference Include="MonoMod.Utils" Version="22.5.1.1" />
+    <PackageReference Include="NativeLibraryLoader" Version="1.0.13" />
+    <PackageReference Include="MonoMod.RuntimeDetour" Version="22.5.1.1" />
     <Reference Include="Genesis.Core.dll">
       <HintPath>.\include\Genesis.Core.dll</HintPath>
     </Reference>
@@ -28,9 +42,5 @@
     <Reference Include="UnityEngine.AssetBundleModule.dll">
       <HintPath>.\include\UnityEngine.AssetBundleModule.dll</HintPath>
     </Reference>
-    <Reference Include="Monomod.RuntimeDetour.dll">
-      <HintPath>.\include\Monomod.RuntimeDetour.dll</HintPath>
-    </Reference>
-    <PackageReference Include="Shim4DotNetFramework.NativeLibrary" Version="1.0.0" />
   </ItemGroup>
 </Project>

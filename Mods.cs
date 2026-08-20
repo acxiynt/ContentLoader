@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using NativeLibraryLoader;
 using SimpleJSON;
 
 namespace Genesis.ContentLoader
@@ -262,7 +263,10 @@ namespace Genesis.ContentLoader
             ModInfo info = JsonLoader.__ldinfo(path);
             bool success = true;
             if (info == null)
+            {
                 success = false;
+                goto end;
+            }
             if (DisabledMod.Contains(info.ModID))
             {
                 success = false;
@@ -281,8 +285,13 @@ namespace Genesis.ContentLoader
         end:
             if (success)
                 Util.LogString("ContentLoader", $"{info}");
+            else Util.LogString("ContentLoader", $"Failed to load ModInfo in {path}/Contents, please check for potential errors", InfoType.Warning);
         }
 
+        private static void __loaddisabledmod()
+        {
+
+        }
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private unsafe delegate __depresult* solvedep(char** _loaded, __mod_kvp* _toload, int loadedlen, int toloadlen, char*** _disabled_reason);
         //recursion replaced by goto for no potential stack overflow.
@@ -295,15 +304,16 @@ namespace Genesis.ContentLoader
             string path = $"{Config.GetConfig("Path", "AssemblyPath")}\\genesis.swacl.so.0";
             const long nullptr = 0;
             IntPtr lib = (IntPtr)nullptr;
+            LibraryLoader loader = LibraryLoader.GetPlatformDefaultLoader();
             if (File.Exists(path))
-                lib = NativeLibrary.Load(path);
+                lib = loader.LoadNativeLibrary(path);
             if ((long)lib == nullptr)
                 goto noacl;
 
-            NativeLibrary.TryGetExport(lib, "solvedep", out IntPtr _func);
+            IntPtr _func = loader.LoadFunctionPointer(lib, "solvedep");
             if ((long)_func == nullptr)
             {
-                NativeLibrary.Free(lib);
+                loader.FreeNativeLibrary(lib);
                 goto noacl;
             }
 
@@ -360,7 +370,7 @@ namespace Genesis.ContentLoader
 
         swacl_cleanup:
 
-            NativeLibrary.Free(lib);
+            loader.FreeNativeLibrary(lib);
 
             if ((long)result == nullptr)
             {
